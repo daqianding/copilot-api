@@ -112,6 +112,9 @@ export interface AnthropicTool {
   description?: string
   input_schema: Record<string, unknown>
   defer_loading?: boolean
+  // Anthropic server-side tools (e.g. "web_search_20250305") use this discriminator.
+  // Plain function tools omit it.
+  type?: string
 }
 
 export interface AnthropicResponse {

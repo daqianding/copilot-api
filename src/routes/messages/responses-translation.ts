@@ -460,13 +460,24 @@ const convertAnthropicTools = (
     return null
   }
 
-  return tools.map((tool) => ({
-    type: "function",
-    name: tool.name,
-    parameters: normalizeToolSchema(tool.input_schema),
-    strict: false,
-    ...(tool.description ? { description: tool.description } : {}),
-  }))
+  return tools.map((tool) => {
+    // Anthropic server-side tools carry a `type` field (e.g.
+    // "web_search_20250305"). Map them to their Responses-API equivalents
+    // so Copilot's Responses backend (which natively supports web_search)
+    // can execute them. Function tools have no `type` field.
+    const serverType = (tool as AnthropicTool & { type?: string }).type
+    if (serverType && serverType.startsWith("web_search")) {
+      return { type: "web_search" }
+    }
+
+    return {
+      type: "function",
+      name: tool.name,
+      parameters: normalizeToolSchema(tool.input_schema),
+      strict: false,
+      ...(tool.description ? { description: tool.description } : {}),
+    }
+  })
 }
 
 const convertAnthropicToolChoice = (
