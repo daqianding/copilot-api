@@ -55,7 +55,8 @@ const getGlobalNpmRoot = async () => {
 async function resolveOpencodeVersion() {
 	try {
 		const npmRootPath = await getGlobalNpmRoot();
-		const packageJson = await readFile(path.join(npmRootPath, "opencode-ai", "package.json"), "utf8");
+		const opencodePackagePath = path.join(npmRootPath, "opencode-ai", "package.json");
+		const packageJson = await readFile(opencodePackagePath, "utf8");
 		const { version } = JSON.parse(packageJson);
 		opencodeVersionCache = version;
 	} catch (error) {
@@ -80,7 +81,9 @@ const requestContext = {
 	run: (context, callback) => asyncLocalStorage.run(context, callback)
 };
 function generateTraceId() {
-	return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+	const timestamp = Date.now().toString(36);
+	const random = Math.random().toString(36).slice(2, 8);
+	return `${timestamp}-${random}`;
 }
 function resolveTraceId(traceId) {
 	const candidate = traceId?.trim();
@@ -599,7 +602,8 @@ const stopVsCodeSessionRefreshLoop = () => {
 	}
 };
 const scheduleSessionIdRefresh = () => {
-	const delay = SESSION_REFRESH_BASE_MS + Math.floor(Math.random() * SESSION_REFRESH_JITTER_MS);
+	const randomDelay = Math.floor(Math.random() * SESSION_REFRESH_JITTER_MS);
+	const delay = SESSION_REFRESH_BASE_MS + randomDelay;
 	consola.debug(`Scheduling next VSCode session ID refresh in ${Math.round(delay / 1e3)} seconds`);
 	stopVsCodeSessionRefreshLoop();
 	vsCodeSessionRefreshTimer = setTimeout(() => {
@@ -638,9 +642,11 @@ const parseUserIdMetadata = (userId) => {
 	const legacySafetyIdentifier = userId.match(/user_([^_]+)_account/)?.[1] ?? null;
 	const legacySessionId = userId.match(/_session_(.+)$/)?.[1] ?? null;
 	const parsedUserId = legacySafetyIdentifier && legacySessionId ? null : parseJsonUserId(userId);
+	const safetyIdentifier = legacySafetyIdentifier ?? getUserIdJsonField(parsedUserId, "device_id") ?? getUserIdJsonField(parsedUserId, "account_uuid");
+	const sessionId = legacySessionId ?? getUserIdJsonField(parsedUserId, "session_id");
 	return {
-		safetyIdentifier: legacySafetyIdentifier ?? getUserIdJsonField(parsedUserId, "device_id") ?? getUserIdJsonField(parsedUserId, "account_uuid"),
-		sessionId: legacySessionId ?? getUserIdJsonField(parsedUserId, "session_id")
+		safetyIdentifier,
+		sessionId
 	};
 };
 const findLastUserContent = (messages) => {
@@ -681,5 +687,5 @@ const getUUID = (content) => {
 };
 
 //#endregion
-export { requestContext as A, state as B, githubHeaders as C, prepareInteractionHeaders as D, prepareForCompact as E, compactAutoContinuePromptStarts as F, compactMessageSections as I, compactSummaryPromptStart as L, initOpencodeVersion as M, COMPACT_AUTO_CONTINUE as N, prepareMessageProxyHeaders as O, COMPACT_REQUEST as P, compactSystemPromptStarts as R, getOauthUrls as S, isOpencodeOauthApp as T, forwardError as _, cacheVsCodeSessionId as a, getGitHubApiBaseUrl as b, getUUID as c, sleep as d, exposeAlias as f, HTTPError as g, getCopilotUsage as h, cacheVsCodeDeviceId as i, resolveTraceId as j, generateTraceId as k, isNullish as l, resolveToUpstream as m, cacheModels as n, generateRequestIdFromPayload as o, getUpstreamForAlias as p, cacheVSCodeVersion as r, getRootSessionId as s, cacheMacMachineId as t, parseUserIdMetadata as u, copilotBaseUrl as v, githubUserHeaders as w, getOauthAppConfig as x, copilotHeaders as y, compactTextOnlyGuard as z };
-//# sourceMappingURL=utils-CBc0KiDM.js.map
+export { COMPACT_AUTO_CONTINUE, COMPACT_REQUEST, HTTPError, cacheMacMachineId, cacheModels, cacheVSCodeVersion, cacheVsCodeDeviceId, cacheVsCodeSessionId, compactAutoContinuePromptStarts, compactMessageSections, compactSummaryPromptStart, compactSystemPromptStarts, compactTextOnlyGuard, copilotBaseUrl, copilotHeaders, exposeAlias, forwardError, generateRequestIdFromPayload, generateTraceId, getCopilotUsage, getGitHubApiBaseUrl, getOauthAppConfig, getOauthUrls, getRootSessionId, getUUID, getUpstreamForAlias, githubHeaders, githubUserHeaders, initOpencodeVersion, isNullish, isOpencodeOauthApp, parseUserIdMetadata, prepareForCompact, prepareInteractionHeaders, prepareMessageProxyHeaders, requestContext, resolveToUpstream, resolveTraceId, sleep, state };
+//# sourceMappingURL=utils-Caw-6iPt.js.map

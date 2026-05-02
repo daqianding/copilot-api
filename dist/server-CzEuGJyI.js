@@ -1,6 +1,6 @@
-import { t as PATHS } from "./paths-RsZHsmRX.js";
-import { A as requestContext, B as state, D as prepareInteractionHeaders, E as prepareForCompact, F as compactAutoContinuePromptStarts, I as compactMessageSections, L as compactSummaryPromptStart, N as COMPACT_AUTO_CONTINUE, O as prepareMessageProxyHeaders, P as COMPACT_REQUEST, R as compactSystemPromptStarts, _ as forwardError, c as getUUID, d as sleep, g as HTTPError, h as getCopilotUsage, j as resolveTraceId$1, k as generateTraceId, l as isNullish, m as resolveToUpstream, n as cacheModels, o as generateRequestIdFromPayload, p as getUpstreamForAlias, s as getRootSessionId, u as parseUserIdMetadata, v as copilotBaseUrl, y as copilotHeaders, z as compactTextOnlyGuard } from "./utils-CBc0KiDM.js";
-import { a as getProviderConfig, c as isMessagesApiEnabled, i as getExtraPromptForModel, l as isResponsesApiContextManagementModel, n as getClaudeTokenMultiplier, o as getReasoningEffortForModel, r as getConfig, s as getSmallModel, t as getAnthropicApiKey, u as isResponsesApiWebSearchEnabled } from "./config-DYMaQsCz.js";
+import { PATHS } from "./paths-Cla6y5eD.js";
+import { COMPACT_AUTO_CONTINUE, COMPACT_REQUEST, HTTPError, cacheModels, compactAutoContinuePromptStarts, compactMessageSections, compactSummaryPromptStart, compactSystemPromptStarts, compactTextOnlyGuard, copilotBaseUrl, copilotHeaders, forwardError, generateRequestIdFromPayload, generateTraceId, getCopilotUsage, getRootSessionId, getUUID, getUpstreamForAlias, isNullish, parseUserIdMetadata, prepareForCompact, prepareInteractionHeaders, prepareMessageProxyHeaders, requestContext, resolveToUpstream, resolveTraceId as resolveTraceId$1, sleep, state } from "./utils-Caw-6iPt.js";
+import { getAnthropicApiKey, getClaudeTokenMultiplier, getConfig, getExtraPromptForModel, getProviderConfig, getReasoningEffortForModel, getSmallModel, isMessagesApiEnabled, isResponsesApiContextManagementModel, isResponsesApiWebSearchEnabled } from "./config-BQvWqYh_.js";
 import consola from "consola";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -23,7 +23,8 @@ function normalizeApiKeys(apiKeys) {
 	return [...new Set(normalizedKeys)];
 }
 function getConfiguredApiKeys() {
-	return normalizeApiKeys(getConfig().auth?.apiKeys);
+	const config = getConfig();
+	return normalizeApiKeys(config.auth?.apiKeys);
 }
 function extractRequestApiKey(c) {
 	const xApiKey = c.req.header("x-api-key")?.trim();
@@ -260,7 +261,8 @@ const createHandlerLogger = (name) => {
 		const filePath = path.join(LOG_DIR, `${sanitizedName}-${dateKey}.log`);
 		const message = formatArgs(logObj.args);
 		const traceIdStr = traceId ? ` [${traceId}]` : "";
-		appendLine(filePath, `[${timestamp}] [${logObj.type}] [${logObj.tag || name}]${traceIdStr}${message ? ` ${message}` : ""}`);
+		const line = `[${timestamp}] [${logObj.type}] [${logObj.tag || name}]${traceIdStr}${message ? ` ${message}` : ""}`;
+		appendLine(filePath, line);
 	} });
 	return instance;
 };
@@ -571,10 +573,12 @@ function createEmptySummary(period) {
 }
 function createEmptyEventsPage(input) {
 	const range = getPeriodRange(input.period);
+	const page = Math.max(1, Math.floor(input.page));
+	const pageSize = Math.min(100, Math.max(1, Math.floor(input.pageSize)));
 	return {
 		items: [],
-		page: Math.max(1, Math.floor(input.page)),
-		page_size: Math.min(100, Math.max(1, Math.floor(input.pageSize))),
+		page,
+		page_size: pageSize,
 		period: input.period,
 		range: {
 			end_ms: range.endMs,
@@ -1220,7 +1224,8 @@ const numTokensForTools = (tools, encoder, constants) => {
 * Calculate the token count of messages, supporting multiple GPT encoders
 */
 const getTokenCount = async (payload, model) => {
-	const encoder = await getEncodeChatFunction(getTokenizerFromModel(model));
+	const tokenizer = getTokenizerFromModel(model);
+	const encoder = await getEncodeChatFunction(tokenizer);
 	const simplifiedMessages = payload.messages;
 	const inputMessages = simplifiedMessages.filter((msg) => msg.role !== "assistant");
 	const outputMessages = simplifiedMessages.filter((msg) => msg.role === "assistant");
@@ -1612,6 +1617,57 @@ async function handleCountTokens(c) {
 }
 
 //#endregion
+//#region src/services/copilot/create-messages.ts
+const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
+const allowedAnthropicBetas = new Set([
+	INTERLEAVED_THINKING_BETA,
+	"context-management-2025-06-27",
+	"advanced-tool-use-2025-11-20"
+]);
+const buildAnthropicBetaHeader = (anthropicBetaHeader, thinking, _model) => {
+	const isAdaptiveThinking = thinking?.type === "adaptive";
+	if (anthropicBetaHeader) {
+		const uniqueFilteredBetas = [...anthropicBetaHeader.split(",").map((item) => item.trim()).filter((item) => item.length > 0).filter((item) => allowedAnthropicBetas.has(item))];
+		if (uniqueFilteredBetas.length > 0) return uniqueFilteredBetas.join(",");
+		return;
+	}
+	if (thinking?.budget_tokens && !isAdaptiveThinking) return INTERLEAVED_THINKING_BETA;
+};
+const createMessages = async (payload, anthropicBetaHeader, options) => {
+	if (!state.copilotToken) throw new Error("Copilot token not found");
+	const enableVision = payload.messages.some((message) => {
+		if (!Array.isArray(message.content)) return false;
+		return message.content.some((block) => block.type === "image" || block.type === "tool_result" && Array.isArray(block.content) && block.content.some((inner) => inner.type === "image"));
+	});
+	let isInitiateRequest = false;
+	const lastMessage = payload.messages.at(-1);
+	if (lastMessage?.role === "user") isInitiateRequest = Array.isArray(lastMessage.content) ? lastMessage.content.some((block) => block.type !== "tool_result") : true;
+	const headers = {
+		...copilotHeaders(state, options.requestId, enableVision),
+		"x-initiator": isInitiateRequest ? "user" : "agent"
+	};
+	prepareInteractionHeaders(options.sessionId, Boolean(options.subagentMarker), headers);
+	prepareForCompact(headers, options.compactType);
+	const { safetyIdentifier, sessionId } = parseUserIdMetadata(payload.metadata?.user_id);
+	if (safetyIdentifier && sessionId) prepareMessageProxyHeaders(headers);
+	const anthropicBeta = buildAnthropicBetaHeader(anthropicBetaHeader, payload.thinking, payload.model);
+	if (anthropicBeta) headers["anthropic-beta"] = anthropicBeta;
+	consola.log(`<-- model: ${payload.model}`);
+	const response = await fetch(`${copilotBaseUrl(state)}/v1/messages`, {
+		method: "POST",
+		headers,
+		body: JSON.stringify(payload)
+	});
+	logCopilotRateLimits(response.headers);
+	if (!response.ok) {
+		consola.error("Failed to create messages", response);
+		throw new HTTPError("Failed to create messages", response);
+	}
+	if (payload.stream) return events(response);
+	return await response.json();
+};
+
+//#endregion
 //#region src/services/copilot/create-responses.ts
 const createResponses = async (payload, { vision, initiator, subagentMarker, requestId, sessionId, compactType }) => {
 	if (!state.copilotToken) throw new Error("Copilot token not found");
@@ -1864,13 +1920,17 @@ const translateSystemPrompt = (system, model) => {
 };
 const convertAnthropicTools = (tools) => {
 	if (!tools || tools.length === 0) return null;
-	return tools.map((tool) => ({
-		type: "function",
-		name: tool.name,
-		parameters: normalizeToolSchema(tool.input_schema),
-		strict: false,
-		...tool.description ? { description: tool.description } : {}
-	}));
+	return tools.map((tool) => {
+		const serverType = tool.type;
+		if (serverType && serverType.startsWith("web_search")) return { type: "web_search" };
+		return {
+			type: "function",
+			name: tool.name,
+			parameters: normalizeToolSchema(tool.input_schema),
+			strict: false,
+			...tool.description ? { description: tool.description } : {}
+		};
+	});
 };
 const convertAnthropicToolChoice = (choice) => {
 	if (!choice) return "auto";
@@ -2036,8 +2096,9 @@ const mapResponsesStopReason = (response) => {
 const mapResponsesUsage = (response) => {
 	const inputTokens = response.usage?.input_tokens ?? 0;
 	const outputTokens = response.usage?.output_tokens ?? 0;
+	const inputCachedTokens = response.usage?.input_tokens_details?.cached_tokens;
 	return {
-		input_tokens: inputTokens - (response.usage?.input_tokens_details?.cached_tokens ?? 0),
+		input_tokens: inputTokens - (inputCachedTokens ?? 0),
 		output_tokens: outputTokens,
 		...response.usage?.input_tokens_details?.cached_tokens !== void 0 && { cache_read_input_tokens: response.usage.input_tokens_details.cached_tokens }
 	};
@@ -2458,9 +2519,10 @@ const openFunctionCallBlock = (state$1, params) => {
 	if (!functionCallState) {
 		const blockIndex$1 = state$1.nextContentBlockIndex;
 		state$1.nextContentBlockIndex += 1;
+		const resolvedToolCallId = toolCallId ?? `tool_call_${blockIndex$1}`;
 		functionCallState = {
 			blockIndex: blockIndex$1,
-			toolCallId: toolCallId ?? `tool_call_${blockIndex$1}`,
+			toolCallId: resolvedToolCallId,
 			name: name ?? "function",
 			consecutiveWhitespaceCount: 0
 		};
@@ -2486,20 +2548,26 @@ const openFunctionCallBlock = (state$1, params) => {
 const extractFunctionCallDetails = (rawEvent) => {
 	const item = rawEvent.item;
 	if (item.type !== "function_call") return;
+	const outputIndex = rawEvent.output_index;
+	const toolCallId = item.call_id;
+	const name = item.name;
+	const initialArguments = item.arguments;
 	return {
-		outputIndex: rawEvent.output_index,
-		toolCallId: item.call_id,
-		name: item.name,
-		initialArguments: item.arguments
+		outputIndex,
+		toolCallId,
+		name,
+		initialArguments
 	};
 };
 
 //#endregion
 //#region src/routes/responses/utils.ts
 const getResponsesRequestOptions = (payload) => {
+	const vision = hasVisionInput(payload);
+	const initiator = hasAgentInitiator(payload) ? "agent" : "user";
 	return {
-		vision: hasVisionInput(payload),
-		initiator: hasAgentInitiator(payload) ? "agent" : "user"
+		vision,
+		initiator
 	};
 };
 const hasAgentInitiator = (payload) => {
@@ -2550,57 +2618,6 @@ const containsVisionContent = (value) => {
 	if ((typeof record.type === "string" ? record.type.toLowerCase() : void 0) === "input_image") return true;
 	if (Array.isArray(record.content)) return record.content.some((entry) => containsVisionContent(entry));
 	return false;
-};
-
-//#endregion
-//#region src/services/copilot/create-messages.ts
-const INTERLEAVED_THINKING_BETA = "interleaved-thinking-2025-05-14";
-const allowedAnthropicBetas = new Set([
-	INTERLEAVED_THINKING_BETA,
-	"context-management-2025-06-27",
-	"advanced-tool-use-2025-11-20"
-]);
-const buildAnthropicBetaHeader = (anthropicBetaHeader, thinking, _model) => {
-	const isAdaptiveThinking = thinking?.type === "adaptive";
-	if (anthropicBetaHeader) {
-		const uniqueFilteredBetas = [...anthropicBetaHeader.split(",").map((item) => item.trim()).filter((item) => item.length > 0).filter((item) => allowedAnthropicBetas.has(item))];
-		if (uniqueFilteredBetas.length > 0) return uniqueFilteredBetas.join(",");
-		return;
-	}
-	if (thinking?.budget_tokens && !isAdaptiveThinking) return INTERLEAVED_THINKING_BETA;
-};
-const createMessages = async (payload, anthropicBetaHeader, options) => {
-	if (!state.copilotToken) throw new Error("Copilot token not found");
-	const enableVision = payload.messages.some((message) => {
-		if (!Array.isArray(message.content)) return false;
-		return message.content.some((block) => block.type === "image" || block.type === "tool_result" && Array.isArray(block.content) && block.content.some((inner) => inner.type === "image"));
-	});
-	let isInitiateRequest = false;
-	const lastMessage = payload.messages.at(-1);
-	if (lastMessage?.role === "user") isInitiateRequest = Array.isArray(lastMessage.content) ? lastMessage.content.some((block) => block.type !== "tool_result") : true;
-	const headers = {
-		...copilotHeaders(state, options.requestId, enableVision),
-		"x-initiator": isInitiateRequest ? "user" : "agent"
-	};
-	prepareInteractionHeaders(options.sessionId, Boolean(options.subagentMarker), headers);
-	prepareForCompact(headers, options.compactType);
-	const { safetyIdentifier, sessionId } = parseUserIdMetadata(payload.metadata?.user_id);
-	if (safetyIdentifier && sessionId) prepareMessageProxyHeaders(headers);
-	const anthropicBeta = buildAnthropicBetaHeader(anthropicBetaHeader, payload.thinking, payload.model);
-	if (anthropicBeta) headers["anthropic-beta"] = anthropicBeta;
-	consola.log(`<-- model: ${payload.model}`);
-	const response = await fetch(`${copilotBaseUrl(state)}/v1/messages`, {
-		method: "POST",
-		headers,
-		body: JSON.stringify(payload)
-	});
-	logCopilotRateLimits(response.headers);
-	if (!response.ok) {
-		consola.error("Failed to create messages", response);
-		throw new HTTPError("Failed to create messages", response);
-	}
-	if (payload.stream) return events(response);
-	return await response.json();
 };
 
 //#endregion
@@ -2683,7 +2700,8 @@ const mergeAttachmentsIntoToolResults = (toolResults, attachmentsByToolResultInd
 	return toolResults.map((block, index) => {
 		const matchedAttachments = attachmentsByToolResultIndex.get(index);
 		if (!matchedAttachments) return block;
-		return mergeContentWithAttachments(block, [...matchedAttachments].sort((left, right) => left.order - right.order).map(({ attachment }) => attachment));
+		const orderedAttachments = [...matchedAttachments].sort((left, right) => left.order - right.order).map(({ attachment }) => attachment);
+		return mergeContentWithAttachments(block, orderedAttachments);
 	});
 };
 const assignAttachmentsToToolResults = (target, attachments, options) => {
@@ -2775,7 +2793,8 @@ const mergeUserMessageContent = (content) => {
 	if (!mergeableContent) return null;
 	const { toolResults, textBlocks, attachments } = mergeableContent;
 	if (toolResults.length === 0 || textBlocks.length === 0 && attachments.length === 0) return null;
-	return mergeAttachmentsForToolResults(textBlocks.length === 0 ? toolResults : mergeToolResult(toolResults, textBlocks), attachments);
+	const mergedToolResults = textBlocks.length === 0 ? toolResults : mergeToolResult(toolResults, textBlocks);
+	return mergeAttachmentsForToolResults(mergedToolResults, attachments);
 };
 const mergeToolResult = (toolResults, textBlocks) => {
 	if (toolResults.length === textBlocks.length) return toolResults.map((tr, i) => mergeContentWithText(tr, textBlocks[i]));
@@ -3330,6 +3349,161 @@ const parseSubagentMarkerFromSystemReminder = (text) => {
 };
 
 //#endregion
+//#region src/routes/messages/web-search-shim.ts
+const WEB_SEARCH_TOOL_NAME = "web_search";
+const WEB_SEARCH_DESCRIPTION = "Search the web for up-to-date information. Provide a focused query string. Returns a textual summary of search results with source URLs.";
+const WEB_SEARCH_INPUT_SCHEMA = {
+	type: "object",
+	properties: { query: {
+		type: "string",
+		description: "The search query."
+	} },
+	required: ["query"]
+};
+const MAX_TOOL_LOOP_ITERATIONS = 5;
+/**
+* Returns true if any tool in the payload is an Anthropic server-side
+* web_search tool (e.g. `web_search_20250305`).
+*/
+const hasAnthropicWebSearch = (payload) => {
+	if (!payload.tools || payload.tools.length === 0) return false;
+	return payload.tools.some((t) => isAnthropicWebSearchTool(t));
+};
+const isAnthropicWebSearchTool = (tool) => {
+	return (tool.type ?? "").startsWith("web_search");
+};
+/**
+* Rewrites Anthropic server-side web_search tool entries into a normal
+* function tool that Copilot's Anthropic transport accepts. Mutates payload.
+*/
+const rewriteWebSearchToolsToFunction = (payload) => {
+	if (!payload.tools) return;
+	payload.tools = payload.tools.map((tool) => {
+		if (!isAnthropicWebSearchTool(tool)) return tool;
+		return {
+			name: WEB_SEARCH_TOOL_NAME,
+			description: WEB_SEARCH_DESCRIPTION,
+			input_schema: WEB_SEARCH_INPUT_SCHEMA
+		};
+	});
+};
+/**
+* Inspects an assistant response for tool_use blocks targeting our
+* shimmed web_search tool.
+*/
+const extractWebSearchCalls = (response) => {
+	const calls = [];
+	for (const block of response.content) if (block.type === "tool_use" && block.name === WEB_SEARCH_TOOL_NAME) calls.push(block);
+	return calls;
+};
+/**
+* Run a single web search by delegating to a Copilot Responses-API model
+* with the native `{type: "web_search"}` server tool. Returns a plain-text
+* summary suitable for handing back to Claude as a tool_result.
+*/
+const performWebSearchViaResponses = async (query, ctx) => {
+	const searchModel = ctx.searchModel;
+	if (!state.copilotToken) throw new Error("Copilot token not found");
+	const result = await createResponses({
+		model: searchModel,
+		input: [{
+			type: "message",
+			role: "user",
+			content: [{
+				type: "input_text",
+				text: query
+			}]
+		}],
+		instructions: "You are a web search assistant. Use the web_search tool to find current information for the user's query. Then write a concise answer (a few short paragraphs) that synthesises the results, and include the most relevant source URLs inline.",
+		tools: [{ type: "web_search" }],
+		tool_choice: "auto",
+		temperature: 1,
+		max_output_tokens: 4096,
+		stream: false,
+		store: false,
+		parallel_tool_calls: true,
+		reasoning: {
+			effort: "low",
+			summary: "auto"
+		}
+	}, {
+		vision: false,
+		initiator: "agent",
+		requestId: `${ctx.requestId}-websearch`,
+		sessionId: ctx.sessionId
+	});
+	const summary = extractResponsesText(result);
+	if (summary && summary.trim().length > 0) return summary;
+	return `(Web search returned no synthesizable text for query: ${query})`;
+};
+const extractResponsesText = (result) => {
+	if (!result || typeof result !== "object") return "";
+	const r = result;
+	if (typeof r.output_text === "string" && r.output_text.length > 0) return r.output_text;
+	if (!Array.isArray(r.output)) return "";
+	return r.output.filter((item) => isAssistantMessageItem(item)).flatMap((item) => getMessageTextParts(item)).join("\n").trim();
+};
+const isAssistantMessageItem = (item) => {
+	if (item.type !== "message") return false;
+	if (item.role !== void 0 && item.role !== "assistant") return false;
+	return Array.isArray(item.content);
+};
+const getMessageTextParts = (item) => {
+	if (!Array.isArray(item.content)) return [];
+	const out = [];
+	for (const c of item.content) if ((c.type === "output_text" || c.type === "text") && typeof c.text === "string") out.push(c.text);
+	return out;
+};
+/**
+* Append the assistant turn (containing tool_use blocks) and the
+* corresponding tool_result blocks to the conversation, so the next
+* createMessages call sees them as prior turns.
+*/
+const appendToolRoundTrip = (payload, assistantContent, toolResults) => {
+	const assistantMsg = {
+		role: "assistant",
+		content: assistantContent
+	};
+	const userContent = toolResults;
+	payload.messages.push(assistantMsg, {
+		role: "user",
+		content: userContent
+	});
+};
+const buildToolResult = (toolUseId, text, isError = false) => ({
+	type: "tool_result",
+	tool_use_id: toolUseId,
+	content: [{
+		type: "text",
+		text
+	}],
+	is_error: isError
+});
+const WEB_SEARCH_SYSTEM_HINT = "You have access to a `web_search` tool. When the user asks about current events, recent data, or anything that may have changed, call `web_search` with a focused query. You may call it multiple times. After you have enough information, answer the user with citations to the source URLs returned.";
+const injectWebSearchHint = (payload) => {
+	const hint = {
+		type: "text",
+		text: WEB_SEARCH_SYSTEM_HINT
+	};
+	if (!payload.system) {
+		payload.system = [hint];
+		return;
+	}
+	if (typeof payload.system === "string") {
+		payload.system = [{
+			type: "text",
+			text: payload.system
+		}, hint];
+		return;
+	}
+	payload.system = [hint, ...payload.system];
+};
+const logShim = (msg, extra) => {
+	if (extra) consola.info(`[web-search-shim] ${msg}`, extra);
+	else consola.info(`[web-search-shim] ${msg}`);
+};
+
+//#endregion
 //#region src/routes/messages/handler.ts
 const logger$5 = createHandlerLogger("messages-handler");
 async function handleCompletion(c) {
@@ -3355,6 +3529,22 @@ async function handleCompletion(c) {
 	if (state.manualApprove) await awaitApproval();
 	const selectedModel = findEndpointModel(anthropicPayload.model);
 	anthropicPayload.model = selectedModel?.id ?? anthropicPayload.model;
+	const wantsWebSearch = hasAnthropicWebSearch(anthropicPayload);
+	if (wantsWebSearch && shouldUseResponsesApi(selectedModel)) return await handleWithResponsesApi(c, anthropicPayload, {
+		subagentMarker,
+		selectedModel,
+		requestId,
+		sessionId,
+		compactType,
+		logger: logger$5
+	});
+	if (wantsWebSearch && shouldUseMessagesApi(selectedModel)) return c.json(await runWebSearchShimLoop(anthropicPayload, {
+		anthropicBetaHeader: anthropicBeta,
+		subagentMarker,
+		requestId,
+		sessionId,
+		compactType
+	}));
 	if (shouldUseMessagesApi(selectedModel)) return await handleWithMessagesApi(c, anthropicPayload, {
 		anthropicBetaHeader: anthropicBeta,
 		subagentMarker,
@@ -3380,6 +3570,77 @@ async function handleCompletion(c) {
 		logger: logger$5
 	});
 }
+/**
+* Drives the Claude <-> proxy <-> (gpt-5 web_search) loop.
+*
+* Pre: payload uses a Messages-only model (e.g. Claude on Copilot) and
+* carries an Anthropic server-side web_search tool.
+*
+* The function rewrites the tool to a function tool, calls the Messages
+* API, and whenever the response asks to call `web_search`, the proxy
+* executes the search via Copilot's Responses API and feeds the result
+* back. Loops up to MAX_TOOL_LOOP_ITERATIONS times.
+*/
+async function runWebSearchShimLoop(payload, opts) {
+	rewriteWebSearchToolsToFunction(payload);
+	injectWebSearchHint(payload);
+	payload.stream = false;
+	const searchModel = pickSearchModel();
+	logShim("Entering shim loop", {
+		primaryModel: payload.model,
+		searchModel
+	});
+	let iterations = 0;
+	let lastResponse;
+	while (iterations < MAX_TOOL_LOOP_ITERATIONS) {
+		iterations += 1;
+		const response = await createMessages(payload, opts.anthropicBetaHeader, {
+			subagentMarker: opts.subagentMarker,
+			requestId: `${opts.requestId}-shim-${iterations}`,
+			sessionId: opts.sessionId,
+			compactType: opts.compactType
+		});
+		lastResponse = response;
+		const calls = extractWebSearchCalls(response);
+		if (calls.length === 0) {
+			logShim(`Loop done after ${iterations} iteration(s)`);
+			break;
+		}
+		logShim(`Iteration ${iterations}: ${calls.length} web_search call(s)`);
+		const results = await Promise.all(calls.map(async (call) => {
+			const query = typeof call.input.query === "string" ? call.input.query : JSON.stringify(call.input);
+			try {
+				const text = await performWebSearchViaResponses(query, {
+					searchModel,
+					requestId: opts.requestId,
+					sessionId: opts.sessionId,
+					subagentMarker: opts.subagentMarker,
+					compactType: opts.compactType
+				});
+				return buildToolResult(call.id, text, false);
+			} catch (err) {
+				const msg = err instanceof Error ? err.message : "unknown web_search error";
+				logShim(`web_search failed for query "${query}": ${msg}`);
+				return buildToolResult(call.id, `Web search failed: ${msg}`, true);
+			}
+		}));
+		appendToolRoundTrip(payload, response.content, results);
+	}
+	if (!lastResponse) throw new Error("Web search shim produced no response");
+	return lastResponse;
+}
+const pickSearchModel = () => {
+	const models = state.models?.data ?? [];
+	for (const id of [
+		"gpt-5-mini",
+		"gpt-5.4-mini",
+		"gpt-5.4",
+		"gpt-5.3-codex"
+	]) if (models.find((x) => x.id === id)?.supported_endpoints?.includes("/responses")) return id;
+	const any = models.find((m) => m.supported_endpoints?.includes("/responses"));
+	if (any) return any.id;
+	return "gpt-5-mini";
+};
 const RESPONSES_ENDPOINT$1 = "/responses";
 const MESSAGES_ENDPOINT = "/v1/messages";
 const shouldUseResponsesApi = (selectedModel) => {
@@ -3577,8 +3838,9 @@ async function handleProviderMessages(c) {
 			providerConfig,
 			upstreamResponse
 		});
+		const jsonBody = await upstreamResponse.json();
 		return respondProviderMessagesJson(c, {
-			body: await upstreamResponse.json(),
+			body: jsonBody,
 			payload,
 			provider,
 			providerConfig
@@ -3902,14 +4164,17 @@ function parsePositiveInt(value, fallback) {
 	return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 tokenUsageRoute.get("/", async (c) => {
-	const summary = await getTokenUsageSummary(parsePeriod(c.req.query("period")));
+	const period = parsePeriod(c.req.query("period"));
+	const summary = await getTokenUsageSummary(period);
 	return c.json(summary);
 });
 tokenUsageRoute.get("/events", async (c) => {
 	const period = parsePeriod(c.req.query("period"));
+	const page = parsePositiveInt(c.req.query("page"), 1);
+	const pageSize = parsePositiveInt(c.req.query("page_size"), DEFAULT_EVENTS_PAGE_SIZE);
 	const eventsPage = await getTokenUsageEventsPage({
-		page: parsePositiveInt(c.req.query("page"), 1),
-		pageSize: parsePositiveInt(c.req.query("page_size"), DEFAULT_EVENTS_PAGE_SIZE),
+		page,
+		pageSize,
 		period
 	});
 	return c.json(eventsPage);
@@ -3977,4 +4242,4 @@ server.route("/:provider/v1/models", providerModelRoutes);
 
 //#endregion
 export { server };
-//# sourceMappingURL=server-DeQnxCps.js.map
+//# sourceMappingURL=server-CzEuGJyI.js.map

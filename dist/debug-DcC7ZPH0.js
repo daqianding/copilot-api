@@ -1,4 +1,4 @@
-import { t as PATHS } from "./paths-RsZHsmRX.js";
+import { PATHS } from "./paths-Cla6y5eD.js";
 import { defineCommand } from "citty";
 import consola from "consola";
 import fs from "node:fs/promises";
@@ -78,5 +78,5 @@ const debug = defineCommand({
 });
 
 //#endregion
-export { debug, runDebug };
-//# sourceMappingURL=debug-DpsLQXp_.js.map
+export { debug };
+//# sourceMappingURL=debug-DcC7ZPH0.js.map

@@ -1,7 +1,7 @@
-import { n as ensurePaths } from "./paths-RsZHsmRX.js";
-import { B as state, M as initOpencodeVersion, a as cacheVsCodeSessionId, f as exposeAlias, i as cacheVsCodeDeviceId, n as cacheModels, r as cacheVSCodeVersion, t as cacheMacMachineId } from "./utils-CBc0KiDM.js";
-import { n as setupCopilotToken, r as setupGitHubToken, t as logUser } from "./token-TbOrtoLs.js";
-import { d as mergeConfigWithDefaults } from "./config-DYMaQsCz.js";
+import { ensurePaths } from "./paths-Cla6y5eD.js";
+import { cacheMacMachineId, cacheModels, cacheVSCodeVersion, cacheVsCodeDeviceId, cacheVsCodeSessionId, exposeAlias, initOpencodeVersion, state } from "./utils-Caw-6iPt.js";
+import { logUser, setupCopilotToken, setupGitHubToken } from "./token-CyrFVmrS.js";
+import { mergeConfigWithDefaults } from "./config-BQvWqYh_.js";
 import { defineCommand } from "citty";
 import consola from "consola";
 import { execSync } from "node:child_process";
@@ -63,7 +63,8 @@ function getShell() {
 	const { platform, ppid, env } = process;
 	if (platform === "win32") {
 		try {
-			if (execSync(`wmic process get ParentProcessId,Name | findstr "${ppid}"`, { stdio: "pipe" }).toString().toLowerCase().includes("powershell.exe")) return "powershell";
+			const command = `wmic process get ParentProcessId,Name | findstr "${ppid}"`;
+			if (execSync(command, { stdio: "pipe" }).toString().toLowerCase().includes("powershell.exe")) return "powershell";
 		} catch {
 			return "cmd";
 		}
@@ -175,7 +176,7 @@ async function runServer(options) {
 		}
 	}
 	consola.box(`🌐 Usage Viewer: ${serverUrl}/usage-viewer?endpoint=${serverUrl}/usage`);
-	const { server } = await import("./server-DeQnxCps.js");
+	const { server } = await import("./server-CzEuGJyI.js");
 	serve({
 		fetch: server.fetch,
 		port: options.port,
@@ -263,5 +264,5 @@ const start = defineCommand({
 });
 
 //#endregion
-export { runServer, start };
-//# sourceMappingURL=start-CPrn5aSK.js.map
+export { start };
+//# sourceMappingURL=start-e2jJyoXA.js.map

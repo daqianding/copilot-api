@@ -1,6 +1,6 @@
-import { n as ensurePaths, t as PATHS } from "./paths-RsZHsmRX.js";
-import { B as state } from "./utils-CBc0KiDM.js";
-import { r as setupGitHubToken } from "./token-TbOrtoLs.js";
+import { PATHS, ensurePaths } from "./paths-Cla6y5eD.js";
+import { state } from "./utils-Caw-6iPt.js";
+import { setupGitHubToken } from "./token-CyrFVmrS.js";
 import { defineCommand } from "citty";
 import consola from "consola";
 
@@ -42,5 +42,5 @@ const auth = defineCommand({
 });
 
 //#endregion
-export { auth, runAuth };
-//# sourceMappingURL=auth-BTgoWhoI.js.map
+export { auth };
+//# sourceMappingURL=auth-NxTGe57g.js.map

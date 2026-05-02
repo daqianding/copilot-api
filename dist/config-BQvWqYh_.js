@@ -1,4 +1,4 @@
-import { t as PATHS } from "./paths-RsZHsmRX.js";
+import { PATHS } from "./paths-Cla6y5eD.js";
 import consola from "consola";
 import fs from "node:fs";
 
@@ -108,7 +108,8 @@ function mergeDefaultConfig(config) {
 	};
 }
 function mergeConfigWithDefaults() {
-	const { mergedConfig, changed } = mergeDefaultConfig(readConfigFromDisk());
+	const config = readConfigFromDisk();
+	const { mergedConfig, changed } = mergeDefaultConfig(config);
 	if (changed) try {
 		fs.writeFileSync(PATHS.CONFIG_PATH, `${JSON.stringify(mergedConfig, null, 2)}\n`, "utf8");
 	} catch (writeError) {
@@ -187,5 +188,5 @@ function getClaudeTokenMultiplier() {
 }
 
 //#endregion
-export { getProviderConfig as a, isMessagesApiEnabled as c, mergeConfigWithDefaults as d, getExtraPromptForModel as i, isResponsesApiContextManagementModel as l, getClaudeTokenMultiplier as n, getReasoningEffortForModel as o, getConfig as r, getSmallModel as s, getAnthropicApiKey as t, isResponsesApiWebSearchEnabled as u };
-//# sourceMappingURL=config-DYMaQsCz.js.map
+export { getAnthropicApiKey, getClaudeTokenMultiplier, getConfig, getExtraPromptForModel, getProviderConfig, getReasoningEffortForModel, getSmallModel, isMessagesApiEnabled, isResponsesApiContextManagementModel, isResponsesApiWebSearchEnabled, mergeConfigWithDefaults };
+//# sourceMappingURL=config-BQvWqYh_.js.map

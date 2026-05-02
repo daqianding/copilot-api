@@ -41,11 +41,11 @@ if (typeof args["api-home"] === "string") process.env.COPILOT_API_HOME = args["a
 if (typeof args["oauth-app"] === "string") process.env.COPILOT_API_OAUTH_APP = args["oauth-app"];
 if (typeof args["enterprise-url"] === "string") process.env.COPILOT_API_ENTERPRISE_URL = args["enterprise-url"];
 bindElectronFetch();
-const { auth } = await import("./auth-BTgoWhoI.js");
-const { checkUsage } = await import("./check-usage-56cYKSRL.js");
-const { debug } = await import("./debug-DpsLQXp_.js");
-const { start } = await import("./start-CPrn5aSK.js");
-await runMain(defineCommand({
+const { auth } = await import("./auth-NxTGe57g.js");
+const { checkUsage } = await import("./check-usage-CikDsO2H.js");
+const { debug } = await import("./debug-DcC7ZPH0.js");
+const { start } = await import("./start-e2jJyoXA.js");
+const main = defineCommand({
 	meta: {
 		name: "copilot-api",
 		description: "A wrapper around GitHub Copilot API to make it OpenAI compatible, making it usable for other tools."
@@ -57,7 +57,8 @@ await runMain(defineCommand({
 		debug
 	},
 	args: cliArgs
-}));
+});
+await runMain(main);
 
 //#endregion
 export {  };
