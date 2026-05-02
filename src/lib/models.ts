@@ -1,11 +1,18 @@
 import type { Model } from "~/services/copilot/get-models"
 
+import { getUpstreamForAlias } from "~/lib/model-alias"
 import { state } from "~/lib/state"
 
 export const findEndpointModel = (sdkModelId: string): Model | undefined => {
   const models = state.models?.data ?? []
   const exactMatch = models.find((m) => m.id === sdkModelId)
   if (exactMatch) {
+    // If the matched entry is an exposed alias, swap the id back to the real
+    // upstream Copilot model id before any downstream code uses it.
+    const upstream = getUpstreamForAlias(exactMatch.id)
+    if (upstream) {
+      return { ...exactMatch, id: upstream }
+    }
     return exactMatch
   }
 

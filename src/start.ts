@@ -7,6 +7,7 @@ import { serve, type ServerHandler } from "srvx"
 import invariant from "tiny-invariant"
 
 import { mergeConfigWithDefaults } from "./lib/config"
+import { exposeAlias } from "./lib/model-alias"
 import { initOpencodeVersion } from "./lib/opencode"
 import { ensurePaths } from "./lib/paths"
 import { initProxyFromEnv } from "./lib/proxy"
@@ -114,9 +115,12 @@ export async function runServer(options: RunServerOptions): Promise<void> {
       {
         ANTHROPIC_BASE_URL: serverUrl,
         ANTHROPIC_AUTH_TOKEN: "dummy",
-        ANTHROPIC_MODEL: selectedModel,
-        ANTHROPIC_DEFAULT_SONNET_MODEL: selectedModel,
-        ANTHROPIC_DEFAULT_HAIKU_MODEL: selectedSmallModel,
+        // Expose the client-facing alias (e.g. ending in `-1m`) when one
+        // exists, so Claude Code's 1M-context heuristic kicks in. The proxy
+        // resolves the alias back to the upstream id internally.
+        ANTHROPIC_MODEL: exposeAlias(selectedModel),
+        ANTHROPIC_DEFAULT_SONNET_MODEL: exposeAlias(selectedModel),
+        ANTHROPIC_DEFAULT_HAIKU_MODEL: exposeAlias(selectedSmallModel),
         DISABLE_NON_ESSENTIAL_MODEL_CALLS: "1",
         CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1",
         CLAUDE_CODE_ATTRIBUTION_HEADER: "0",

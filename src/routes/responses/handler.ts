@@ -5,6 +5,7 @@ import { streamSSE } from "hono/streaming"
 import { awaitApproval } from "~/lib/approval"
 import { getConfig, isResponsesApiWebSearchEnabled } from "~/lib/config"
 import { createHandlerLogger, debugJson, debugJsonTail } from "~/lib/logger"
+import { resolveToUpstream } from "~/lib/model-alias"
 import { checkRateLimit } from "~/lib/rate-limit"
 import { state } from "~/lib/state"
 import {
@@ -35,6 +36,9 @@ export const handleResponses = async (c: Context) => {
   await checkRateLimit(state)
 
   const payload = await c.req.json<ResponsesPayload>()
+  // Resolve client-facing aliases (e.g. CC's 1M-context naming) to the real
+  // upstream Copilot model id before any downstream processing or forwarding.
+  payload.model = resolveToUpstream(payload.model)
   debugJson(logger, "Responses request payload:", payload)
 
   // not support subagent marker for now , set sessionId = getUUID(requestId)

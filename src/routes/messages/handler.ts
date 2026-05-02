@@ -6,6 +6,7 @@ import { awaitApproval } from "~/lib/approval"
 import { COMPACT_REQUEST } from "~/lib/compact"
 import { getSmallModel, isMessagesApiEnabled } from "~/lib/config"
 import { createHandlerLogger, debugJson } from "~/lib/logger"
+import { resolveToUpstream } from "~/lib/model-alias"
 import { findEndpointModel } from "~/lib/models"
 import { checkRateLimit } from "~/lib/rate-limit"
 import { state } from "~/lib/state"
@@ -31,6 +32,9 @@ export async function handleCompletion(c: Context) {
   await checkRateLimit(state)
 
   const anthropicPayload = await c.req.json<AnthropicMessagesPayload>()
+  // Resolve client-facing aliases (e.g. CC's 1M-context naming) to the real
+  // upstream Copilot model id before any downstream processing.
+  anthropicPayload.model = resolveToUpstream(anthropicPayload.model)
   debugJson(logger, "Anthropic request payload:", anthropicPayload)
 
   sanitizeIdeTools(anthropicPayload)

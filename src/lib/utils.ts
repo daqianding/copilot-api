@@ -10,6 +10,7 @@ import { getModels } from "~/services/copilot/get-models"
 import { getVSCodeVersion } from "~/services/get-vscode-version"
 
 import { getVSCodeDeviceId } from "./deviceid"
+import { getAliasForUpstream } from "./model-alias"
 import { state } from "./state"
 
 export const sleep = (ms: number) =>
@@ -22,12 +23,24 @@ export const isNullish = (value: unknown): value is null | undefined =>
 
 export async function cacheModels(): Promise<void> {
   const models = await getModels()
+  const filtered = models.data.filter(
+    (model) =>
+      model.model_picker_enabled || model.capabilities.type === "embeddings",
+  )
+
+  // Surface client-facing aliases (e.g. CC-recognized 1M-context names)
+  // alongside the real upstream model entries. Each alias entry is a clone
+  // with its `id` rewritten; downstream resolution swaps it back via
+  // findEndpointModel/getUpstreamForAlias before we hit Copilot.
+  const aliasEntries = filtered.flatMap((model) => {
+    const alias = getAliasForUpstream(model.id)
+    if (!alias) return []
+    return [{ ...model, id: alias }]
+  })
+
   state.models = {
     ...models,
-    data: models.data.filter(
-      (model) =>
-        model.model_picker_enabled || model.capabilities.type === "embeddings",
-    ),
+    data: [...filtered, ...aliasEntries],
   }
 }
 

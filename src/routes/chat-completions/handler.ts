@@ -4,6 +4,7 @@ import { streamSSE, type SSEMessage } from "hono/streaming"
 
 import { awaitApproval } from "~/lib/approval"
 import { createHandlerLogger, debugJson, debugJsonTail } from "~/lib/logger"
+import { resolveToUpstream } from "~/lib/model-alias"
 import { checkRateLimit } from "~/lib/rate-limit"
 import { state } from "~/lib/state"
 import {
@@ -25,6 +26,9 @@ export async function handleCompletion(c: Context) {
   await checkRateLimit(state)
 
   let payload = await c.req.json<ChatCompletionsPayload>()
+  // Resolve client-facing aliases (e.g. CC's 1M-context naming) to the real
+  // upstream Copilot model id before any downstream processing or forwarding.
+  payload.model = resolveToUpstream(payload.model)
   debugJsonTail(logger, "Request payload:", { value: payload, tailLength: 400 })
 
   // Find the selected model
