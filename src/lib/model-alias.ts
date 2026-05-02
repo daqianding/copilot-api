@@ -37,6 +37,19 @@ export const ALIAS_TO_UPSTREAM: Readonly<Record<string, string>> =
     ]),
   )
 
+/**
+ * Claude Code strips `[1m]` from the model ID before sending requests.
+ * This map handles the stripped alias -> real upstream model ID.
+ * e.g. "claude-opus-4.7-internal" -> "claude-opus-4.7-1m-internal"
+ */
+const STRIPPED_ALIAS_TO_UPSTREAM: Readonly<Record<string, string>> =
+  Object.fromEntries(
+    Object.entries(UPSTREAM_TO_ALIAS).map(([upstream, alias]) => [
+      alias.replace(/\[1m\]/i, ""),
+      upstream,
+    ]),
+  )
+
 /** Returns the alias for a given upstream id, or undefined if none. */
 export const getAliasForUpstream = (upstreamId: string): string | undefined =>
   UPSTREAM_TO_ALIAS[upstreamId]
@@ -46,8 +59,13 @@ export const getUpstreamForAlias = (aliasId: string): string | undefined =>
   ALIAS_TO_UPSTREAM[aliasId]
 
 /** Convenience: replace alias -> upstream if applicable, else identity. */
-export const resolveToUpstream = (id: string): string =>
-  ALIAS_TO_UPSTREAM[id] ?? id
+export const resolveToUpstream = (id: string): string => {
+  const fromAlias = ALIAS_TO_UPSTREAM[id]
+  if (fromAlias) return fromAlias
+  const fromStripped = STRIPPED_ALIAS_TO_UPSTREAM[id]
+  if (fromStripped) return fromStripped
+  return id
+}
 
 /** Convenience: replace upstream -> alias if applicable, else identity. */
 export const exposeAlias = (id: string): string => UPSTREAM_TO_ALIAS[id] ?? id
