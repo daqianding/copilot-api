@@ -119,6 +119,7 @@ export async function runServer(options: RunServerOptions): Promise<void> {
         // exists, so Claude Code's 1M-context heuristic kicks in. The proxy
         // resolves the alias back to the upstream id internally.
         ANTHROPIC_MODEL: exposeAlias(selectedModel),
+        ANTHROPIC_SMALL_FAST_MODEL: selectedSmallModel,
         ANTHROPIC_DEFAULT_SONNET_MODEL: exposeAlias(selectedModel),
         ANTHROPIC_DEFAULT_HAIKU_MODEL: exposeAlias(selectedSmallModel),
         DISABLE_NON_ESSENTIAL_MODEL_CALLS: "1",
